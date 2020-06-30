@@ -140,3 +140,4 @@ dmypy.json
 /glove_6b/**  
 /imdb_data/**  
 /jena_climate/**
+/data/**
