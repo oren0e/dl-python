@@ -127,3 +127,16 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# idea
+.idea
+*.idea/
+**.idea/
+
+# othe DL files
+*.h5
+/cats_dogs_original/**
+/cats_dogs_small/**
+/glove_6b/**  
+/imdb_data/**  
+/jena_climate/**
