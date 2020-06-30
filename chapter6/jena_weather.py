@@ -228,3 +228,38 @@ the performance is very slow thus I won't train it here. For further details see
 https://github.com/tensorflow/tensorflow/issues/40944
 https://github.com/keras-team/keras/issues/8935
 '''
+
+# Stacking recurrent layers
+'''
+Because we are no longer overfitting (as a result of using the dropout) but seem to have hit
+a performance bottleneck, we should consider increasing the capacity of the network. Recall
+the universal description of the machine learning workflow: It's generally a good idea to increase
+the capacity of your network until overfitting becomes the primary obstacle. As long as you aren't
+overfitting too badly, you're likely under capacity.
+
+Increasing the network capacity is typically done either by increasing the number of units
+in the layers or adding more layers.
+To stack recurrent layers on top of each other in Keras, all intermediate layers should
+return their full sequence of outputs (a 3D tensor) rather than their output at the last
+timestep. This is done by specifying `return_sequence` = True.  
+'''
+input_tensor = layers.Input((None, float_data.shape[-1]))
+kmodel = layers.GRU(32, dropout=0.1, recurrent_dropout=0.5, return_sequences=True)(input_tensor)
+kmodel = layers.GRU(64, activation='relu', dropout=0.1, recurrent_dropout=0.5)(kmodel)
+output_tensor = layers.Dense(1)(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer=RMSprop(), loss='mae')
+history = model.fit_generator(train_gen, steps_per_epoch=500, epochs=40,
+                              validation_data=val_gen, validation_steps=val_steps)
+'''
+The model won't be trained here for the exact same reasons as the last version - 
+lack of support of cuda version for recurrent_dropout in GRU
+
+But from the results (in the book) we can draw 2 conclusions:
+1. Because we are still not overfitting too badly, we could safely increase the size
+of the layers in a quest for better validation-loss improvement. This has a non-negligible
+computational cost, though.
+2. Adding a layer didn't help by a significant factor, so you may be seeing diminishing returns
+from increasing network capacity at this point.
+'''
