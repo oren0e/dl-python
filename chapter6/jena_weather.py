@@ -205,3 +205,26 @@ plt.show()
 min(val_loss) * std[1]  # = 2.3, where the non-ml baseline was 2.56. Nice improvement due to ML model.
 
 # Using recurrent dropout to fight overfitting
+'''
+Let's add dropout and recurrent_dropout.
+dropout = a float specifying the dropout rate for input units of the layer.
+recurrent_dropout = specifying the dropout rate of the recurrent units.
+Because networks being regularized with dropout always take longer to fully converege,
+we'll train the network for twice as many epochs.
+'''
+input_tensor = layers.Input((None, float_data.shape[-1]))
+kmodel = layers.GRU(32, recurrent_dropout=0.2, dropout=0.2)(input_tensor)
+output_tensor = layers.Dense(1)(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer=RMSprop(), loss='mae')
+history = model.fit_generator(train_gen, steps_per_epoch=500,
+                              epochs=40,
+                              validation_data=val_gen,
+                              validation_steps=val_steps)
+'''
+Note: Because recurrent_dropout does not seem to be implemented in the cuda version of the layers
+the performance is very slow thus I won't train it here. For further details see these issues:
+https://github.com/tensorflow/tensorflow/issues/40944
+https://github.com/keras-team/keras/issues/8935
+'''
