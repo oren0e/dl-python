@@ -5,11 +5,10 @@ import matplotlib.pyplot as plt
 
 from typing import Tuple
 
-#from keras import models, layers
-#from keras.optimizers import RMSprop
 from tensorflow.keras import models, layers
 from tensorflow.keras.optimizers import RMSprop
-
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.preprocessing import sequence
 
 data_dir = '/home/corel/python_projects/dl_keras_book/jena_climate'
 fname = os.path.join(data_dir, 'jena_climate_2009_2016.csv')
@@ -262,4 +261,223 @@ of the layers in a quest for better validation-loss improvement. This has a non-
 computational cost, though.
 2. Adding a layer didn't help by a significant factor, so you may be seeing diminishing returns
 from increasing network capacity at this point.
+'''
+
+# Using bidirectional RNNs
+'''
+A bidirectional RNN exploits the order sensitivity of RNNs: It consists of using two regular
+RNNs, such as GRU and LSTM layers, each of which processes the input sequence in one direction
+(chronologically and antichronologically), and then merging their representations.
+Could the RNNs have performed well enough if they processed input sequences in antichronological
+order (newer timesteps first)? Let's try this in practice and see what happens.
+
+All we need to do is write a variant of the data generator where the input sequences are reverted
+along the time dimension (replace the last line with `yield samples[:, ::-1, :], targets)
+'''
+def generator_backwards(data: np.ndarray, lookback: int, delay: int, min_index: int, max_index: int,
+              shuffle: bool = False, batch_size: int = 128, step: int = 6) -> Tuple[np.ndarray, np.ndarray]:
+    '''
+    :param data: The original array of floating-point data, which we normalized.
+    :param lookback: How many timesteps back the input data should go.
+    :param delay: How many timesteps in the future the target should go.
+    :param min_index: Indices in the data array that delimit which timesteps to draw from.
+                      This is useful for keeping a segment of the data for validation and
+                      another for testing.
+    :param max_index: See min_index.
+    :param shuffle: Wether to shuffle the samples or draw them in chronological order.
+    :param batch_size: The number of samples per batch.
+    :param step: The period, in timesteps, at which you sample the data
+    :return: Tuple (samples, targets) where samples is one batch of input data and targets is
+             the corresoinding array of target temperatures.
+    '''
+    if max_index is None:
+        max_index = len(data) - delay - 1
+    i = min_index + lookback
+    while 1:
+        if shuffle:
+            rows = np.random.randint(min_index + lookback, max_index, size=batch_size)
+        else:
+            if i + batch_size >= max_index:
+                i = min_index + lookback
+            rows = np.arange(i, min(i + batch_size, max_index))
+            i += len(rows)
+
+        samples = np.zeros((len(rows), lookback // step, data.shape[-1]))
+        targets = np.zeros((len(rows),))
+        for j, row in enumerate(rows):
+            indices = range(rows[j] - lookback, rows[j], step)
+            samples[j] = data[indices]
+            targets[j] = data[rows[j] + delay][1]
+        yield samples[:, ::-1, :], targets
+
+lookback = 1440
+step = 6
+delay = 144
+batch_size = 128
+
+train_gen = generator_backwards(float_data, lookback=lookback, delay=delay, min_index=0, max_index=200000,
+                      shuffle=True, step=step, batch_size=batch_size)
+val_gen = generator_backwards(float_data, lookback=lookback, delay=delay, min_index=200001, max_index=300000,
+                      shuffle=True, step=step, batch_size=batch_size)
+test_gen = generator_backwards(float_data, lookback=lookback, delay=delay, min_index=300001, max_index=None,
+                      shuffle=True, step=step, batch_size=batch_size)
+
+# these are the forecasted parts that we will want to look at
+val_steps = (300000 - 200001 - lookback) // batch_size   # how many steps to draw from val_gen in order to see
+                                            # the entire validation set
+test_steps = (len(float_data) - 300001 - lookback) // batch_size     # " " for test
+
+input_tensor = layers.Input((None, float_data.shape[-1]))
+#kmodel = layers.GRU(32)(input_tensor)
+kmodel = layers.GRU(32)(input_tensor)
+output_tensor = layers.Dense(1)(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer=RMSprop(), loss='mae')
+history = model.fit_generator(train_gen, steps_per_epoch=500, epochs=20,
+                              validation_data=val_gen, validation_steps=val_steps)
+
+# plot results
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+epochs = range(1, len(loss) + 1)
+
+plt.plot(epochs, loss, 'bo', label='Training loss')
+plt.plot(epochs, val_loss, 'b', label='Validation loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.title('Training and Validation Loss')
+plt.legend()
+plt.show()
+min(history.history['val_loss'])
+
+'''
+The reversed GRU strongly underperforms even the common-sense baseline, indicating that in this
+case, chronological processing is important to the success of our approach. This make perfect sense:
+The GRU layer will typically be better at remembering the recent past than the distant past, and naturally
+the more recent weather data points are more predictive than older data points for the problem (that's what
+makes our common-sense baseline fairly strong). This isn't always the case in other problems, including 
+natural language: Intuitively, the importance of a word in understanding a sentence isn't usually 
+dependent on its position in the sentence.
+Let's try the same trick on the LSTM IMDB example
+'''
+max_features = 10000    # number of words to consider as features
+maxlen = 500    # cuts off texts after this number of words (among the max_features most common words)
+
+(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
+
+# reverse sequences
+x_train = [x[::-1] for x in x_train]
+x_test = [x[::-1] for x in x_test]
+
+# pad sequences
+x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
+x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
+
+input_tensor = layers.Input((maxlen,))
+kmodel = layers.Embedding(max_features, 128)(input_tensor)
+kmodel = layers.LSTM(32)(kmodel)
+output_tensor = layers.Dense(1, activation='sigmoid')(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['acc'])
+history = model.fit(x_train, y_train, epochs=10, batch_size=128, validation_split=0.2)
+max(history.history['val_acc'])
+'''
+We get nearly the same performance as when we used the non-reversed order, thus
+validating our assumption that in natural language - the order does matter but
+which order - does not matter.
+
+To instantiate a bidirectional RNN in Keras we use the `bidirectional` layer,
+which takes as its first argument a recurrent layer instance. It creates a second,
+separate instance of this recurrent layer and uses one instance for processing the input
+sequences in chronological order and the other instance for processing the input sequences
+in reversed order. Let's try that on the IMDB sentiment analysis task:
+'''
+max_features = 10000    # number of words to consider as features
+maxlen = 500    # cuts off texts after this number of words (among the max_features most common words)
+
+(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
+
+# pad sequences
+x_train = sequence.pad_sequences(x_train, maxlen=maxlen)
+x_test = sequence.pad_sequences(x_test, maxlen=maxlen)
+
+input_tensor = layers.Input((maxlen,))
+kmodel = layers.Embedding(max_features, 32)(input_tensor)
+kmodel = layers.Bidirectional(layers.LSTM(32))(kmodel)
+output_tensor = layers.Dense(1, activation='sigmoid')(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['acc'])
+history = model.fit(x_train, y_train, epochs=10, batch_size=128, validation_split=0.2)
+max(history.history['val_acc'])
+
+# plot
+acc = history.history['acc']
+val_acc = history.history['val_acc']
+epochs = range(1, len(acc) + 1)
+
+plt.plot(epochs, acc, 'bo', label='Training accuracy')
+plt.plot(epochs, val_acc, 'b', label='Validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.title('Training and Validation Accuracy')
+plt.legend()
+plt.show()
+
+'''
+We see that it performs slightly better than the regular LSTM we have tried in the 
+previous section. It also seems to overfit more quickly, which is unsurprising because
+bidirectional layer has twice as many parameters as a chronological LSTM. With some
+regularization, the bidirectional approach would likely be a strong performer on this task.
+
+Now let's try the same approach on the temperature task:
+'''
+lookback = 1440
+step = 6
+delay = 144
+batch_size = 128
+
+train_gen = generator(float_data, lookback=lookback, delay=delay, min_index=0, max_index=200000,
+                      shuffle=True, step=step, batch_size=batch_size)
+val_gen = generator(float_data, lookback=lookback, delay=delay, min_index=200001, max_index=300000,
+                      shuffle=True, step=step, batch_size=batch_size)
+test_gen = generator(float_data, lookback=lookback, delay=delay, min_index=300001, max_index=None,
+                      shuffle=True, step=step, batch_size=batch_size)
+
+# these are the forecasted parts that we will want to look at
+val_steps = (300000 - 200001 - lookback) // batch_size   # how many steps to draw from val_gen in order to see
+                                            # the entire validation set
+test_steps = (len(float_data) - 300001 - lookback) // batch_size     # " " for test
+
+input_tensor = layers.Input((None, float_data.shape[-1]))
+kmodel = layers.Bidirectional(layers.GRU(32))(input_tensor)
+output_tensor = layers.Dense(1)(kmodel)
+model = models.Model(input_tensor, output_tensor)
+
+model.compile(optimizer=RMSprop(), loss='mae')
+history = model.fit_generator(train_gen, steps_per_epoch=500, epochs=40,
+                              validation_data=val_gen, validation_steps=val_steps)
+min(history.history['val_loss']) * std[1]
+
+
+'''
+This performs about as well as the regular GRU. It's easy to understand why:
+All the predictive power must come from the chronological half of the network,
+because the antichronological half is known to be severely underperforming on this
+task (again, because the recent past matters much more than the distant past in this case).
+
+There are more things we could try in order to improve the performance on the
+temperature-forecasting task:
+- Adjust the number of units in each recurrent layer in the stacked setup. The current choices
+are largely arbitrary and thus probably suboptimal.
+- Adjust the learning rate for the RMSprop() optimizer.
+- Try using LSTM layers instead of GRU layers.
+- Try using a bigger densely connected regressor on top of the recurrent layers:
+that is, a bigger Dense layer or even a stack of Dense layers.
+- Don't forget to eventually run the best performing models (in terms of validation MAE)
+on the test set! Otherwise, you'll develop architectures that are overfitting to the 
+validation set.
 '''
