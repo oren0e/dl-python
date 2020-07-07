@@ -7,6 +7,14 @@ temporal axis: axis 1 in the input tensor.
 Let's build a simple two-layer 1D convnet and apply it to the IMDB sentiment
 classification task.
 '''
+
+# this block is needed to successfully load CUDA drivers
+# in the last model (1D convnet and GRU combined)
+import tensorflow as tf
+config = tf.compat.v1.ConfigProto()
+config.gpu_options.allow_growth = True
+sess = tf.compat.v1.Session(config=config)
+
 from tensorflow.keras.datasets import imdb
 from tensorflow.keras.preprocessing import sequence
 from tensorflow.keras import layers, models
@@ -187,6 +195,7 @@ val_steps = (300000 - 200001 - lookback) // batch_size
 
 test_steps = (len(float_data) - 300001 - lookback) // batch_size
 
+
 input_tensor = layers.Input((None, float_data.shape[-1]))
 kmodel = layers.Conv1D(32, 5, activation='relu')(input_tensor)
 kmodel = layers.MaxPooling1D(3)(kmodel)
@@ -194,3 +203,17 @@ kmodel = layers.Conv1D(32, 5, activation='relu')(kmodel)
 kmodel = layers.GRU(32, dropout=0.1, recurrent_dropout=0.5)(kmodel)
 output_tensor = layers.Dense(1)(kmodel)
 model = models.Model(input_tensor, output_tensor)
+
+model.summary()
+model.compile(optimizer=RMSprop(), loss='mae')
+history = model.fit_generator(train_gen, steps_per_epoch=500, epochs=20,
+                              validation_data=val_gen,
+                              validation_steps=val_steps)
+'''
+Because recurrent_dropout is not supported with CUDA drivers this is slow so the results
+are supressed. See https://github.com/tensorflow/tensorflow/issues/40944
+
+Judging from the validation loss, this setup isn't as good as the regularized GRU alone,
+but it's significantly faster. It looks at twice as much data, which in this case doesn't
+appear to be hugely helpful but may be important for other datasets.
+'''
