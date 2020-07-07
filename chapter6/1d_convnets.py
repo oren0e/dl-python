@@ -7,10 +7,10 @@ temporal axis: axis 1 in the input tensor.
 Let's build a simple two-layer 1D convnet and apply it to the IMDB sentiment
 classification task.
 '''
-from keras.datasets import imdb
-from keras.preprocessing import sequence
-from keras import layers, models
-from keras.optimizers import RMSprop
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.preprocessing import sequence
+from tensorflow.keras import layers, models
+from tensorflow.keras.optimizers import RMSprop
 
 import matplotlib.pyplot as plt
 
@@ -35,7 +35,7 @@ input_dim = num of categories = max_features in our case (the distinct number of
 words that we are examining in this problem).
 output_dim = embedding_size = 128.
 '''
-kmodel = layers.Embedding(max_features, 128, input_length=max_len)(input_tensor)
+kmodel = layers.Embedding(max_features, 128)(input_tensor)
 kmodel = layers.Conv1D(32, 7, activation='relu')(kmodel)
 kmodel = layers.MaxPooling1D(5)(kmodel)
 kmodel = layers.Conv1D(32, 7, activation='relu')(kmodel)
@@ -43,7 +43,7 @@ kmodel = layers.GlobalMaxPooling1D()(kmodel)  # ends with either this or Flatten
                                               # inputs into 2D outputs, allowing us to add one or
                                               # more Dense layers to the model for classification
                                               # or regression.
-output_tensor = layers.Dense(1)(kmodel)
+output_tensor = layers.Dense(1, activation='sigmoid')(kmodel)
 model = models.Model(input_tensor, output_tensor)
 model.summary()
 
@@ -53,12 +53,25 @@ history = model.fit(x_train, y_train, epochs=10, batch_size=128, validation_spli
 # plot results
 loss = history.history['loss']
 val_loss = history.history['val_loss']
+acc = history.history['acc']
+val_acc = history.history['val_acc']
 epochs = range(1, len(loss) + 1)
 
 plt.plot(epochs, loss, 'bo', label='Training loss')
 plt.plot(epochs, val_loss, 'b', label='Validation loss')
-plt.title('Training and Validation loss')
+plt.title('Training and Validation Loss')
 plt.xlabel('Epochs')
 plt.ylabel('Loss')
 plt.legend()
+
+plt.figure()
+
+plt.plot(epochs, acc, 'bo', label='Training accuracy')
+plt.plot(epochs, val_acc, label='Validation accuracy')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+
 plt.show()
+print(max(history.history['val_acc']))
