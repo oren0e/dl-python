@@ -141,3 +141,4 @@ dmypy.json
 /imdb_data/**  
 /jena_climate/**
 /data/**
+/my_log_dir/**
