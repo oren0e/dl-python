@@ -2,6 +2,7 @@ import tensorflow.keras as keras
 from tensorflow.keras import models, layers
 from tensorflow.keras.datasets import imdb
 from tensorflow.keras.preprocessing import sequence
+from tensorflow.keras.utils import plot_model
 
 max_features = 2000     # number of words to consider as features
 max_len = 500           # cuts of texts after this number of words
@@ -32,3 +33,7 @@ embeddings_freq=1 => records embedding data every 1 epoch
 callbacks = [
     keras.callbacks.TensorBoard(log_dir='my_log_dir', histogram_freq=1, embeddings_freq=1)
 ]
+
+history = model.fit(x_train, y_train, epochs=20, batch_size=128,
+                    validation_split=0.2, callbacks=callbacks)
+plot_model(model, to_file='tensorboard_lesson_model_graph.png')
